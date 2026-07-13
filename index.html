@@ -330,20 +330,60 @@ function fmtMeters(m){
   return Math.round(m) + " m";
 }
 
-// Siirtää annetun pisteen lähimmälle kävelykadulle OSRM:n reittipalvelun avulla.
-// Jos pyyntö epäonnistuu (esim. verkkovirhe), palautetaan alkuperäinen piste varmuuden vuoksi.
+// Tunnistaa OpenStreetMap-katuosoitteen perusteella suuret autotiet, joita tulee välttää.
+// Sallii kuitenkin kevyen liikenteen väylät ja ulkoilupolut.
+function isMajorHighway(name) {
+  if (!name) return false;
+  const n = name.toLowerCase().trim();
+  
+  // Estetään valtatiet (esim. "vt 1", "valtatie") ja kantatiet (esim. "kt 50", "kantatie")
+  if (/\bvt\s*\d+/.test(n) || n.includes("valtatie")) return true;
+  if (/\bkt\s*\d+/.test(n) || n.includes("kantatie")) return true;
+  
+  // Estetään moottoritiet, moottoriliikennetiet ja kehätiet
+  if (n.includes("moottoritie") || n.includes("moottoriliikennetie") || n.includes("kehä")) return true;
+  
+  // Estetään suuret väylät ("lansivayla", "itavayla" jne.), mutta sallitaan kevyen liikenteen väylät
+  if (n.includes("väylä") || n.includes("vayla")) {
+    if (n.includes("ulkoilu") || n.includes("kävely") || n.includes("pyörä") || n.includes("kevyen")) {
+      return false; 
+    }
+    return true; 
+  }
+  
+  // Estetään englanninkieliset moottoritiesanat varmuuden vuoksi
+  if (n.includes("motorway") || n.includes("highway") || n.includes("freeway") || n.includes("expressway")) return true;
+  
+  return false;
+}
+
+// Siirtää pisteen lähimmälle kävelykadulle. Estää suuret autotiet jo hakuvaiheessa.
 async function snapToRoad(lat, lng){
   try{
-    const url = `https://router.project-osrm.org/nearest/v1/foot/${lng},${lat}?number=1`;
+    const url = `https://router.project-osrm.org/nearest/v1/foot/${lng},${lat}?number=1&exclude=motorway,trunk,primary`;
     const resp = await fetch(url);
-    if(!resp.ok) return [lat, lng];
+    if(!resp.ok) return [lat, lng, ""];
     const data = await resp.json();
     if(data && data.code === 'Ok' && data.waypoints && data.waypoints[0]){
       const [snapLng, snapLat] = data.waypoints[0].location;
-      return [snapLat, snapLng];
+      const roadName = data.waypoints[0].name || "";
+      return [snapLat, snapLng, roadName];
     }
   }catch(e){ /* ei verkkoa / CORS-ongelma - käytetään alkuperäistä pistettä */ }
-  return [lat, lng];
+  return [lat, lng, ""];
+}
+
+// Arpoo ja hakee pisteen, joka ei osu suurelle autotielle tai moottoritielle.
+async function getSafeRoadPoint(lat, lng, maxDistance) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [plat, plng] = randomPointAround(lat, lng, maxDistance);
+    const [snapLat, snapLng, roadName] = await snapToRoad(plat, plng);
+    if (!isMajorHighway(roadName)) {
+      return [snapLat, snapLng];
+    }
+  }
+  // Viimeinen hätävara: satunnainen vapaa piste, jos lukitus epäonnistuu
+  return randomPointAround(lat, lng, maxDistance);
 }
 
 // --- pelaajahymiön valinta ---
@@ -404,8 +444,9 @@ async function initMap(lat, lng){
 }
 
 async function spawnAnimals(lat, lng){
-  const raw = Array.from({length: SPAWN_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
-  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  const snapped = await Promise.all(
+    Array.from({length: SPAWN_COUNT}, () => getSafeRoadPoint(lat, lng, SPAWN_RADIUS_M))
+  );
   snapped.forEach(([alat, alng]) => {
     const emoji = FRUIT_EMOJIS[Math.floor(Math.random()*FRUIT_EMOJIS.length)];
     const icon = L.divIcon({ className:'', html:`<div class="animal-icon">${emoji}</div>`, iconSize:[32,32], iconAnchor:[16,16] });
@@ -416,8 +457,9 @@ async function spawnAnimals(lat, lng){
 }
 
 async function spawnDecorations(lat, lng){
-  const raw = Array.from({length: DECOR_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
-  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  const snapped = await Promise.all(
+    Array.from({length: DECOR_COUNT}, () => getSafeRoadPoint(lat, lng, SPAWN_RADIUS_M))
+  );
   snapped.forEach(([dlat, dlng]) => {
     const emoji = DECOR_EMOJIS[Math.floor(Math.random()*DECOR_EMOJIS.length)];
     const icon = L.divIcon({ className:'', html:`<div class="decor-icon">${emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
@@ -427,8 +469,9 @@ async function spawnDecorations(lat, lng){
 }
 
 async function spawnPredators(lat, lng){
-  const raw = Array.from({length: PREDATOR_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
-  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  const snapped = await Promise.all(
+    Array.from({length: PREDATOR_COUNT}, () => getSafeRoadPoint(lat, lng, SPAWN_RADIUS_M))
+  );
   snapped.forEach(([plat, plng]) => {
     const emoji = PREDATOR_EMOJIS[Math.floor(Math.random()*PREDATOR_EMOJIS.length)];
     const icon = L.divIcon({ className:'', html:`<div class="predator-icon">${emoji}</div>`, iconSize:[34,34], iconAnchor:[17,17] });
@@ -451,10 +494,12 @@ async function movePredators(){
       nlat = p.lat - dLatDeg;
       nlng = p.lng - dLngDeg;
     }
-    // pysy kadulla myös liikkuessa
-    const [snapLat, snapLng] = await snapToRoad(nlat, nlng);
-    p.lat = snapLat; p.lng = snapLng;
-    p.marker.setLatLng([snapLat, snapLng]);
+    // pysy kadulla myös liikkuessa, mutta vältä suuria autoteitä
+    const [snapLat, snapLng, roadName] = await snapToRoad(nlat, nlng);
+    if (!isMajorHighway(roadName)) {
+      p.lat = snapLat; p.lng = snapLng;
+      p.marker.setLatLng([snapLat, snapLng]);
+    }
   }));
   if(gameOver) return; // peli on voinut päättyä toisen tarkistuksen kautta odotuksen aikana
   if(currentPos) checkPredatorCollision(currentPos[0], currentPos[1]);
