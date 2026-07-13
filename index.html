@@ -1,0 +1,618 @@
+
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HERKKUJAHTI // live-karttapeli</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@600;900&display=swap');
+
+  :root{
+    --bg: #070314;
+    --panel: rgba(18, 8, 38, 0.9);
+    --cyan: #00ffff;
+    --magenta: #ff00ff;
+    --yellow: #ffeb3b;
+    --lime: #39ff14;
+    --orange: #ff5722;
+    --line: rgba(255, 0, 255, 0.35);
+    --text: #ffffff;
+    --muted: #b08bf8;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow:hidden;
+  }
+  #map{ position:absolute; inset:0; z-index:1; }
+
+  /* Karttapaneelin värisuodattimet tekevät kartasta huomattavan värikkään */
+  .leaflet-tile-pane {
+    filter: saturate(2.6) contrast(1.15) brightness(0.95) hue-rotate(8deg);
+  }
+
+  /* HUD */
+  #hud{
+    position:absolute; top:0; left:0; right:0; z-index:1000;
+    display:flex; justify-content:center; padding:10px 10px 0 10px;
+    pointer-events:none;
+  }
+  #hudcard{
+    pointer-events:auto;
+    background:var(--panel);
+    border:2px solid var(--cyan);
+    border-radius:18px;
+    padding:12px 20px;
+    display:flex; align-items:center; gap:22px;
+    box-shadow: 0 0 30px rgba(0,255,242,0.4), inset 0 0 15px rgba(255,47,208,0.25);
+    backdrop-filter: blur(12px);
+    max-width:94vw;
+  }
+  .stat{ text-align:center; min-width:64px; }
+  .stat .label{ font-size:11px; letter-spacing:1.8px; color:#c7a4ff; text-transform:uppercase; font-weight: 700; }
+  .stat .value{ font-size:22px; font-weight:800; color:var(--cyan); text-shadow:0 0 12px rgba(0,255,242,0.8); }
+  .stat.score .value{ color:var(--yellow); text-shadow:0 0 12px rgba(255,225,77,0.8);}
+  .stat.left .value{ color:var(--magenta); text-shadow:0 0 12px rgba(255,47,208,0.8);}
+  #collected{
+    display:flex; gap:4px; font-size:20px; max-width:180px; flex-wrap:wrap;
+    justify-content:center;
+    filter: drop-shadow(0 0 6px var(--yellow));
+  }
+
+  /* Start overlay - Kirkkaan vihreä, värikäs ja animoitu */
+  #startOverlay{
+    position:absolute; inset:0; z-index:2000;
+    background: radial-gradient(circle at 20% 20%, #39ff14 0%, transparent 55%),
+                radial-gradient(circle at 80% 80%, #00ffff 0%, transparent 55%),
+                radial-gradient(circle at 50% 50%, #00a827 0%, #012408 100%);
+    background-size: 140% 140%;
+    animation: bgPulse 8s ease-in-out infinite alternate;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:22px; text-align:center; padding:20px;
+  }
+  @keyframes bgPulse {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 100% 100%; }
+  }
+
+  /* Otsikon leikkisä fontti tummanvihreällä sävyllä ja vaalealla kontrastihosteella */
+  #startOverlay h1{
+    font-family: 'Fredoka', 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+    font-size: 52px; letter-spacing: 2px; margin:0;
+    color: #013208;
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.95), 0 0 5px rgba(57, 255, 20, 0.8);
+    font-weight: 900;
+  }
+  #startOverlay p{ 
+    color:#ffffff; 
+    max-width:440px; 
+    margin:0; 
+    font-size:15px; 
+    line-height:1.6; 
+    font-weight: 600;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.5);
+  }
+  .picker{
+    display:grid; grid-template-columns:repeat(4, 54px); gap:12px;
+    background: rgba(3, 20, 7, 0.9); padding:18px; border-radius:18px; 
+    border:2px solid var(--lime);
+    box-shadow: 0 0 25px rgba(57,255,20,0.6);
+  }
+  .picker button{
+    width:54px; height:54px; font-size:28px; border-radius:12px;
+    background:#0b210e; border:2px solid rgba(255,255,255,0.2); cursor:pointer;
+    transition:.15s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .picker button:hover{ border-color:var(--cyan); transform:scale(1.12); box-shadow: 0 0 12px var(--cyan); }
+  .picker button.selected{ border-color:var(--yellow); box-shadow:0 0 20px var(--yellow); background:#154a1d; }
+  #startBtn{
+    padding:16px 48px; font-size:18px; letter-spacing:2px; font-weight:800;
+    border-radius:30px; border:none; cursor:pointer; text-transform:uppercase;
+    background: linear-gradient(90deg, #ff00ff, #ff007f, #00ffff);
+    background-size: 200% auto;
+    color:#000000;
+    box-shadow: 0 0 30px rgba(255, 0, 255, 0.8), 0 0 15px rgba(0, 255, 255, 0.5);
+    transition: 0.3s;
+    animation: gradientMove 2s ease infinite;
+  }
+  @keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  #startBtn:disabled{ opacity:0.3; cursor:not-allowed; box-shadow:none; animation: none;}
+  #startBtn:not(:disabled):hover{ transform:scale(1.05); }
+  #statusMsg{ 
+    font-size:14px; 
+    color:var(--yellow); 
+    min-height:16px; 
+    font-weight: 700; 
+    text-shadow: 1px 1px 2px #000, 0 0 8px rgba(255,225,77,0.8); 
+  }
+
+  /* Popup / toast on catch */
+  .catch-toast{
+    position:absolute; z-index:3000; pointer-events:none;
+    font-size:28px; font-weight:900; color:var(--yellow);
+    text-shadow:0 0 15px #ff00ff, 0 0 5px #00ffff, 0 0 2px #000;
+    animation: floatUp 1s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+  @keyframes floatUp{
+    0%{ transform:translate(-50%,-20%) scale(0.3); opacity:0; }
+    20%{ transform:translate(-50%,-100%) scale(1.4); opacity:1; }
+    100%{ transform:translate(-50%,-220%) scale(0.9); opacity:0; }
+  }
+
+  /* End screen */
+  #endOverlay{
+    position:absolute; inset:0; z-index:2500; display:none;
+    background:radial-gradient(circle, #250a3a 0%, #060210 95%);
+    align-items:center; justify-content:center; flex-direction:column; gap:20px; text-align:center;
+    padding: 20px;
+  }
+  #endOverlay h2{ font-size:36px; color:var(--yellow); text-shadow:0 0 25px rgba(255,225,77,0.9); margin:0; letter-spacing:2px; animation: bounce 1s infinite alternate; }
+  #endOverlay .final{ font-size:18px; color:var(--text); line-height: 1.6; }
+  #restartBtn{
+    padding:14px 44px; font-size:16px; letter-spacing:2px; font-weight:800;
+    border-radius:30px; border:none; cursor:pointer; text-transform:uppercase;
+    background: linear-gradient(90deg, #00ffff, #ff00ff);
+    color:#05070d;
+    box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
+    transition: .15s;
+  }
+  #restartBtn:hover{
+    transform: scale(1.05);
+    box-shadow: 0 0 35px rgba(255, 0, 255, 0.8);
+  }
+  @keyframes bounce {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-10px); }
+  }
+
+  /* animal marker */
+  .animal-icon{
+    font-size:32px; line-height:1;
+    filter: drop-shadow(0 0 10px rgba(255, 235, 59, 0.9)) drop-shadow(0 0 3px rgba(255, 100, 0, 0.5));
+    animation: bob 1.8s ease-in-out infinite;
+  }
+  @keyframes bob{
+    0%,100%{ transform:translateY(0); }
+    50%{ transform:translateY(-6px); }
+  }
+  .decor-icon{
+    font-size:26px; line-height:1; opacity:0.95;
+    filter: drop-shadow(0 0 8px rgba(57,255,20,0.8)) drop-shadow(0 0 2px rgba(0,255,255,0.4));
+    animation: sway 4s ease-in-out infinite;
+  }
+  @keyframes sway{
+    0%,100%{ transform:rotate(-8deg) scale(1); }
+    50%{ transform:rotate(8deg) scale(1.1); }
+  }
+  .predator-icon{
+    font-size:34px; line-height:1;
+    filter: drop-shadow(0 0 12px #ff1a1a) drop-shadow(0 0 4px #ff5500);
+    animation: predator-wiggle 1.2s ease-in-out infinite;
+  }
+  @keyframes predator-wiggle {
+    0%,100%{ transform:translateY(0) rotate(-6deg); }
+    50%{ transform:translateY(-8px) rotate(6deg); }
+  }
+  .player-icon{
+    font-size:34px; line-height:1;
+    filter: drop-shadow(0 0 12px var(--magenta)) drop-shadow(0 0 4px var(--cyan));
+  }
+  .player-pulse{
+    width:30px; height:30px; border-radius:50%;
+    background: radial-gradient(circle, rgba(0,255,242,0.6) 0%, rgba(255,47,208,0.4) 70%, rgba(0,0,0,0) 100%);
+    box-shadow: 0 0 15px rgba(0,255,242,0.8);
+    animation: pulseRing 1.5s infinite;
+  }
+  @keyframes pulseRing{
+    0%{ box-shadow:0 0 0 0 rgba(0,255,242,0.6); }
+    70%{ box-shadow:0 0 0 22px rgba(0,255,242,0); }
+    100%{ box-shadow:0 0 0 0 rgba(0,255,242,0); }
+  }
+
+  #testModeBadge{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    z-index:1000; background:rgba(57,255,20,0.18); border:2px solid var(--lime);
+    color:var(--lime); padding:8px 18px; border-radius:20px; font-size:12px;
+    font-weight:bold; letter-spacing:1px; display:none;
+    box-shadow: 0 0 15px rgba(57,255,20,0.5);
+  }
+
+  .leaflet-control-attribution{ background:rgba(5,7,13,0.75)!important; color:#8d9da8!important; }
+  .leaflet-control-attribution a{ color:#b08bf8!important; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="hud">
+  <div id="hudcard">
+    <div class="stat">
+      <div class="label">Matka</div>
+      <div class="value" id="statMeters">0 m</div>
+    </div>
+    <div class="stat score">
+      <div class="label">Pisteet</div>
+      <div class="value" id="statScore">0</div>
+    </div>
+    <div class="stat left">
+      <div class="label">Jäljellä</div>
+      <div class="value" id="statLeft">–</div>
+    </div>
+    <div id="collected"></div>
+  </div>
+</div>
+
+<div id="testModeBadge">📍 Testitila — klikkaa karttaa liikkuaksesi</div>
+
+<div id="startOverlay">
+  <h1>HERKKUJAHTI</h1>
+  <p>Kerää lähistöllä piileskelevät herkut kävelemällä niiden luo — mutta väistä vaarallisia petoja! Valitse ensin oma hymiösi kartalle.</p>
+  <div class="picker" id="playerPicker"></div>
+  <div id="statusMsg">Valitse hymiö ja paina Aloita</div>
+  <button id="startBtn" disabled>Aloita peli</button>
+</div>
+
+<div id="endOverlay">
+  <h2 id="endTitle">🎉 Kaikki herkut kerätty!</h2>
+  <div class="final" id="finalStats"></div>
+  <button id="restartBtn">Pelaa uudestaan</button>
+</div>
+
+<script>
+const FRUIT_EMOJIS = ["🍏","🍇","🍌","🥭","🥑","🍉","🥕","🍍","🍓","🍒","🥝","🫐","🍎","🍐","🍅","🌽","🫛"];
+const PLAYER_EMOJIS = ["🐰","🐵","🐹","🐭"];
+const PREDATOR_EMOJIS = ["🦁","🐯","🐻","🦊"];
+const DECOR_EMOJIS = ["🌲","🌳","🌴","🌷","🪻","🌻","🌹","🌸","🌺","🍀"];
+
+const CATCH_RADIUS_M = 25;   // kuinka lähelle pitää päästä herkkua
+const SPAWN_RADIUS_M = 350;  // kuinka laajalle alueelle herkut ilmestyvät
+const SPAWN_COUNT = 16;
+const DECOR_COUNT = 20;
+const PREDATOR_COUNT = 6;
+const DANGER_RADIUS_M = 20;      // kuinka lähelle petoa saa mennä
+const PREDATOR_STEP_M = 12;      // kuinka pitkän askeleen peto ottaa per tick
+const PREDATOR_MOVE_INTERVAL_MS = 1200;
+const MIN_MOVE_M = 2;        // suodattaa GPS-hyppelyn pois reitiltä
+const POINTS_PER_CATCH = 100;
+
+let map, playerMarker, pulseMarker, pathLine, pathLineShadow;
+let watchId = null;
+let predatorInterval = null;
+let testMode = false;
+let selectedEmoji = null;
+let animals = [];      // {marker, lat, lng, emoji, collected} - kerättävät herkut
+let predators = [];    // {marker, lat, lng, emoji, homeLat, homeLng} - väistettävät pedot
+let decorations = [];  // {marker} - koristeet
+let path = [];         // [ [lat,lng], ... ]
+let totalMeters = 0;
+let score = 0;
+let collectedList = [];
+let started = false;
+let gameOver = false;
+let currentPos = null;
+
+// --- apufunktiot ---
+
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function randomPointAround(lat, lng, radiusMeters){
+  const rd = radiusMeters / 111300;
+  const u = Math.random();
+  const v = Math.random();
+  const w = rd * Math.sqrt(u);
+  const t = 2 * Math.PI * v;
+  const dx = w * Math.cos(t);
+  const dy = w * Math.sin(t);
+  const dLng = dx / Math.cos(lat * Math.PI / 180);
+  return [lat + dy, lng + dLng];
+}
+
+function fmtMeters(m){
+  if(m >= 1000) return (m/1000).toFixed(2) + " km";
+  return Math.round(m) + " m";
+}
+
+// Siirtää annetun pisteen lähimmälle kävelykadulle OSRM:n reittipalvelun avulla.
+// Jos pyyntö epäonnistuu (esim. verkkovirhe), palautetaan alkuperäinen piste varmuuden vuoksi.
+async function snapToRoad(lat, lng){
+  try{
+    const url = `https://router.project-osrm.org/nearest/v1/foot/${lng},${lat}?number=1`;
+    const resp = await fetch(url);
+    if(!resp.ok) return [lat, lng];
+    const data = await resp.json();
+    if(data && data.code === 'Ok' && data.waypoints && data.waypoints[0]){
+      const [snapLng, snapLat] = data.waypoints[0].location;
+      return [snapLat, snapLng];
+    }
+  }catch(e){ /* ei verkkoa / CORS-ongelma - käytetään alkuperäistä pistettä */ }
+  return [lat, lng];
+}
+
+// --- pelaajahymiön valinta ---
+
+function buildPicker(){
+  const el = document.getElementById('playerPicker');
+  PLAYER_EMOJIS.forEach(e => {
+    const b = document.createElement('button');
+    b.textContent = e;
+    b.onclick = () => {
+      selectedEmoji = e;
+      [...el.children].forEach(c => c.classList.remove('selected'));
+      b.classList.add('selected');
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('statusMsg').textContent = "Valmis! Paina Aloita.";
+    };
+    el.appendChild(b);
+  });
+}
+buildPicker();
+
+// --- kartan alustus ---
+
+async function initMap(lat, lng){
+  map = L.map('map', { zoomControl:false, attributionControl:true }).setView([lat,lng], 17);
+  L.control.zoom({ position:'bottomright' }).addTo(map);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains:'abcd', maxZoom:20
+  }).addTo(map);
+
+  // Kaksiosainen näyttävä ja loistava reittiviiva
+  pathLineShadow = L.polyline([], {
+    color:'#00ffff', weight:10, opacity:0.4, lineCap:'round', lineJoin:'round'
+  }).addTo(map);
+
+  pathLine = L.polyline([], {
+    color:'#ff2fd0', weight:4, opacity:0.9, lineCap:'round', lineJoin:'round', dashArray:'8,12'
+  }).addTo(map);
+
+  const pulseIcon = L.divIcon({ className:'', html:'<div class="player-pulse"></div>', iconSize:[30,30], iconAnchor:[15,15] });
+  pulseMarker = L.marker([lat,lng], { icon:pulseIcon, interactive:false, zIndexOffset:0 }).addTo(map);
+
+  const playerIcon = L.divIcon({ className:'', html:`<div class="player-icon">${selectedEmoji}</div>`, iconSize:[34,34], iconAnchor:[17,17] });
+  playerMarker = L.marker([lat,lng], { icon:playerIcon, zIndexOffset:1000 }).addTo(map);
+
+  document.getElementById('statusMsg').textContent = "Sijoitetaan kohteita kaduille…";
+  await spawnDecorations(lat, lng);
+  await spawnAnimals(lat, lng);
+  await spawnPredators(lat, lng);
+  document.getElementById('statusMsg').textContent = "";
+
+  if(testMode){
+    document.getElementById('testModeBadge').style.display = 'block';
+    map.on('click', e => movePlayerTo(e.latlng.lat, e.latlng.lng));
+  }
+}
+
+async function spawnAnimals(lat, lng){
+  const raw = Array.from({length: SPAWN_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
+  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  snapped.forEach(([alat, alng]) => {
+    const emoji = FRUIT_EMOJIS[Math.floor(Math.random()*FRUIT_EMOJIS.length)];
+    const icon = L.divIcon({ className:'', html:`<div class="animal-icon">${emoji}</div>`, iconSize:[32,32], iconAnchor:[16,16] });
+    const marker = L.marker([alat, alng], { icon }).addTo(map);
+    animals.push({ marker, lat:alat, lng:alng, emoji, collected:false });
+  });
+  updateHudLeft();
+}
+
+async function spawnDecorations(lat, lng){
+  const raw = Array.from({length: DECOR_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
+  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  snapped.forEach(([dlat, dlng]) => {
+    const emoji = DECOR_EMOJIS[Math.floor(Math.random()*DECOR_EMOJIS.length)];
+    const icon = L.divIcon({ className:'', html:`<div class="decor-icon">${emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
+    const marker = L.marker([dlat, dlng], { icon, interactive:false, zIndexOffset:-1000 }).addTo(map);
+    decorations.push({ marker });
+  });
+}
+
+async function spawnPredators(lat, lng){
+  const raw = Array.from({length: PREDATOR_COUNT}, () => randomPointAround(lat, lng, SPAWN_RADIUS_M));
+  const snapped = await Promise.all(raw.map(([plat,plng]) => snapToRoad(plat, plng)));
+  snapped.forEach(([plat, plng]) => {
+    const emoji = PREDATOR_EMOJIS[Math.floor(Math.random()*PREDATOR_EMOJIS.length)];
+    const icon = L.divIcon({ className:'', html:`<div class="predator-icon">${emoji}</div>`, iconSize:[34,34], iconAnchor:[17,17] });
+    const marker = L.marker([plat, plng], { icon, interactive:false, zIndexOffset:500 }).addTo(map);
+    predators.push({ marker, lat:plat, lng:plng, emoji, homeLat:lat, homeLng:lng });
+  });
+  predatorInterval = setInterval(movePredators, PREDATOR_MOVE_INTERVAL_MS);
+}
+
+async function movePredators(){
+  if(!started || gameOver) return;
+  await Promise.all(predators.map(async p => {
+    const angle = Math.random() * 2 * Math.PI;
+    const dLatDeg = (PREDATOR_STEP_M / 111300) * Math.sin(angle);
+    const dLngDeg = (PREDATOR_STEP_M / (111300 * Math.cos(p.lat * Math.PI/180))) * Math.cos(angle);
+    let nlat = p.lat + dLatDeg;
+    let nlng = p.lng + dLngDeg;
+    // pysy oman kotipisteensä kierrosalueella, muuten käänny takaisin
+    if(haversine(p.homeLat, p.homeLng, nlat, nlng) > SPAWN_RADIUS_M){
+      nlat = p.lat - dLatDeg;
+      nlng = p.lng - dLngDeg;
+    }
+    // pysy kadulla myös liikkuessa
+    const [snapLat, snapLng] = await snapToRoad(nlat, nlng);
+    p.lat = snapLat; p.lng = snapLng;
+    p.marker.setLatLng([snapLat, snapLng]);
+  }));
+  if(gameOver) return; // peli on voinut päättyä toisen tarkistuksen kautta odotuksen aikana
+  if(currentPos) checkPredatorCollision(currentPos[0], currentPos[1]);
+}
+
+function checkPredatorCollision(lat, lng){
+  if(gameOver) return;
+  for(const p of predators){
+    const d = haversine(lat, lng, p.lat, p.lng);
+    if(d <= DANGER_RADIUS_M){
+      loseGame(p.emoji);
+      return;
+    }
+  }
+}
+
+function updateHudLeft(){
+  const left = animals.filter(a => !a.collected).length;
+  document.getElementById('statLeft').textContent = left;
+}
+
+function updateCollectedRow(){
+  document.getElementById('collected').innerHTML = collectedList.map(e => `<span>${e}</span>`).join('');
+}
+
+function showCatchToast(emoji, latlng){
+  const point = map.latLngToContainerPoint(latlng);
+  const t = document.createElement('div');
+  t.className = 'catch-toast';
+  t.style.left = point.x + 'px';
+  t.style.top = point.y + 'px';
+  t.textContent = `+${POINTS_PER_CATCH} ${emoji}`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1000);
+}
+
+function checkCollisions(lat, lng){
+  if(gameOver) return;
+  animals.forEach(a => {
+    if(a.collected) return;
+    const d = haversine(lat, lng, a.lat, a.lng);
+    if(d <= CATCH_RADIUS_M){
+      a.collected = true;
+      map.removeLayer(a.marker);
+      score += POINTS_PER_CATCH;
+      collectedList.push(a.emoji);
+      document.getElementById('statScore').textContent = score;
+      updateCollectedRow();
+      updateHudLeft();
+      showCatchToast(a.emoji, [a.lat, a.lng]);
+      if(animals.every(x => x.collected)) endGame();
+    }
+  });
+}
+
+function movePlayerTo(lat, lng){
+  if(currentPos){
+    const d = haversine(currentPos[0], currentPos[1], lat, lng);
+    if(d >= MIN_MOVE_M){
+      totalMeters += d;
+      document.getElementById('statMeters').textContent = fmtMeters(totalMeters);
+      path.push([lat,lng]);
+      pathLineShadow.setLatLngs(path);
+      pathLine.setLatLngs(path);
+    }
+  } else {
+    path.push([lat,lng]);
+    pathLineShadow.setLatLngs(path);
+    pathLine.setLatLngs(path);
+  }
+  currentPos = [lat,lng];
+  playerMarker.setLatLng([lat,lng]);
+  pulseMarker.setLatLng([lat,lng]);
+  map.panTo([lat,lng], { animate:true });
+  checkCollisions(lat, lng);
+  checkPredatorCollision(lat, lng);
+}
+
+function onGeoSuccess(pos){
+  const { latitude, longitude } = pos.coords;
+  if(!map){
+    initMap(latitude, longitude);
+    currentPos = [latitude, longitude];
+    path.push([latitude, longitude]);
+    pathLineShadow.setLatLngs(path);
+    pathLine.setLatLngs(path);
+  } else {
+    movePlayerTo(latitude, longitude);
+  }
+}
+
+function onGeoError(err){
+  testMode = true;
+  let reason = "Sijaintia ei saatu";
+  if(location.protocol === 'file:'){
+    reason = "Selain estää GPS:n paikallisesta tiedostosta (file://) — tarvitset https-osoitteen tai localhost-palvelimen";
+  } else if(err){
+    if(err.code === 1) reason = "Sijaintilupa evätty";
+    else if(err.code === 2) reason = "Sijaintia ei voitu määrittää";
+    else if(err.code === 3) reason = "Sijainnin haku aikakatkaistiin";
+  }
+  document.getElementById('statusMsg').textContent = reason + " — käynnistetään testitila.";
+  const lat = 60.1699, lng = 24.9384; // Helsinki fallback
+  initMap(lat, lng);
+  currentPos = [lat, lng];
+  path.push([lat,lng]);
+  pathLineShadow.setLatLngs(path);
+  pathLine.setLatLngs(path);
+}
+
+function endGame(){
+  gameOver = true;
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if(predatorInterval !== null) clearInterval(predatorInterval);
+  document.getElementById('endTitle').textContent = '🎉 Kaikki herkut kerätty!';
+  document.getElementById('finalStats').innerHTML =
+    `Kuljit <b>${fmtMeters(totalMeters)}</b> ja keräsit kaikki ${SPAWN_COUNT} herkkua.<br>Lopputulos: <b>${score} pistettä</b>`;
+  document.getElementById('endOverlay').style.display = 'flex';
+}
+
+function loseGame(predatorEmoji){
+  gameOver = true;
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if(predatorInterval !== null) clearInterval(predatorInterval);
+  document.getElementById('endTitle').textContent = `${predatorEmoji} Jäit kiinni!`;
+  document.getElementById('finalStats').innerHTML =
+    `Ehdit kulkea <b>${fmtMeters(totalMeters)}</b> ja kerätä <b>${collectedList.length}</b>/${SPAWN_COUNT} herkkua ennen kuin peto sai kiinni.<br>Lopputulos: <b>${score} pistettä</b>`;
+  document.getElementById('endOverlay').style.display = 'flex';
+}
+
+document.getElementById('startBtn').onclick = () => {
+  if(!selectedEmoji || started) return;
+  started = true;
+  document.getElementById('startOverlay').style.display = 'none';
+  document.getElementById('statusMsg').textContent = "Haetaan sijaintia…";
+
+  if(!navigator.geolocation){
+    onGeoError();
+    return;
+  }
+  if(location.protocol === 'file:'){
+    // Selaimet estävät geolocationin file://-origineista turvallisuussyistä.
+    onGeoError();
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      onGeoSuccess(pos);
+      watchId = navigator.geolocation.watchPosition(onGeoSuccess, () => {}, {
+        enableHighAccuracy:true, maximumAge:2000, timeout:8000
+      });
+    },
+    onGeoError,
+    { enableHighAccuracy:true, timeout:8000 }
+  );
+};
+
+document.getElementById('restartBtn').onclick = () => location.reload();
+</script>
+</body>
+</html>
