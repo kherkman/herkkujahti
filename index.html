@@ -74,27 +74,46 @@
     animation: bgPulse 8s ease-in-out infinite alternate;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:22px; text-align:center; padding:20px;
+    overflow: hidden;
   }
   @keyframes bgPulse {
     0% { background-position: 0% 0%; }
     100% { background-position: 100% 100%; }
   }
 
-  /* Otsikon leikkisä fontti tummanvihreällä sävyllä ja vaalealla kontrastihosteella */
+  /* Otsikon sarjakuvamainen fontti, paksu musta rajaus ja vino asento */
   #startOverlay h1{
     font-family: 'Fredoka', 'Comic Sans MS', 'Chalkboard SE', sans-serif;
-    font-size: 52px; letter-spacing: 2px; margin:0;
-    color: #013208;
-    text-shadow: 0 0 15px rgba(255, 255, 255, 0.95), 0 0 5px rgba(57, 255, 20, 0.8);
+    font-size: 58px; letter-spacing: 1px; margin: 10px 0;
+    color: #ffe14d; /* Sarjakuvakeltainen */
+    display: inline-block;
+    /* Paksu musta sarjakuvarajaus, 3D-magenta varjo ja musta lisävarjo */
+    text-shadow: 
+      -3px -3px 0 #000,  
+       3px -3px 0 #000,
+      -3px  3px 0 #000,
+       3px  3px 0 #000,
+      -3px  0px 0 #000,
+       3px  0px 0 #000,
+       0px -3px 0 #000,
+       0px  3px 0 #000,
+       6px  6px 0 var(--magenta),
+       8px  8px 0 #000;
+    transform: rotate(-3deg) skew(-6deg);
+    animation: comicWobble 2.5s ease-in-out infinite alternate;
     font-weight: 900;
+  }
+  @keyframes comicWobble {
+    0% { transform: rotate(-3deg) skew(-5deg) scale(1.0); }
+    100% { transform: rotate(-1deg) skew(-3deg) scale(1.04); }
   }
   #startOverlay p{ 
     color:#ffffff; 
     max-width:440px; 
-    margin:0; 
+    margin:10px 0; 
     font-size:15px; 
     line-height:1.6; 
-    font-weight: 600;
+    font-weight: 700;
     text-shadow: 1px 1px 3px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.5);
   }
   .picker{
@@ -331,19 +350,24 @@ function fmtMeters(m){
 }
 
 // Tunnistaa OpenStreetMap-katuosoitteen perusteella suuret autotiet, joita tulee välttää.
-// Sallii kuitenkin kevyen liikenteen väylät ja ulkoilupolut.
+// Estää valtatiet, kantatiet, seututiet, eurooppatiet ja pelkillä numeroilla osoitetut autotiet.
 function isMajorHighway(name) {
   if (!name) return false;
   const n = name.toLowerCase().trim();
   
-  // Estetään valtatiet (esim. "vt 1", "valtatie") ja kantatiet (esim. "kt 50", "kantatie")
-  if (/\bvt\s*\d+/.test(n) || n.includes("valtatie")) return true;
-  if (/\bkt\s*\d+/.test(n) || n.includes("kantatie")) return true;
+  // 1. Estetään valtatiet, kantatiet ja seututiet (esim. "vt 1", "kt 50", "st 110", "st110", "valtatie", "kantatie", "seututie")
+  if (/\b(vt|kt|st)\b\s*\d+/i.test(n) || n.includes("valtatie") || n.includes("kantatie") || n.includes("seututie")) return true;
   
-  // Estetään moottoritiet, moottoriliikennetiet ja kehätiet
-  if (n.includes("moottoritie") || n.includes("moottoriliikennetie") || n.includes("kehä")) return true;
+  // 2. Estetään Eurooppatiet (esim. "e 18", "e18", "e 75")
+  if (/\be\s*\d+/i.test(n) || n.includes("eurooppatie")) return true;
   
-  // Estetään suuret väylät ("lansivayla", "itavayla" jne.), mutta sallitaan kevyen liikenteen väylät
+  // 3. Estetään jos nimenä on pelkkä numero (kuten "51", "3") tai useita numeroita vinoviivalla (kuten "e 18 / 51" tai "12 / 120")
+  if (/^[\d\s\/\-+eE]+$/.test(n)) return true;
+  
+  // 4. Estetään moottoritiet, moottoriliikennetiet, kehätiet, liittymät ja rampit
+  if (n.includes("moottoritie") || n.includes("moottoriliikennetie") || n.includes("kehä") || n.includes("ramppi") || n.includes("liittymä")) return true;
+  
+  // 5. Estetään suuret väylät (esim. lansivayla, itavayla), mutta sallitaan kevyen liikenteen väylät
   if (n.includes("väylä") || n.includes("vayla")) {
     if (n.includes("ulkoilu") || n.includes("kävely") || n.includes("pyörä") || n.includes("kevyen")) {
       return false; 
@@ -351,16 +375,17 @@ function isMajorHighway(name) {
     return true; 
   }
   
-  // Estetään englanninkieliset moottoritiesanat varmuuden vuoksi
+  // 6. Estetään englanninkieliset moottoritiesanat
   if (n.includes("motorway") || n.includes("highway") || n.includes("freeway") || n.includes("expressway")) return true;
   
   return false;
 }
 
-// Siirtää pisteen lähimmälle kävelykadulle. Estää suuret autotiet jo hakuvaiheessa.
+// Siirtää pisteen lähimmälle kadulle/tielle.
 async function snapToRoad(lat, lng){
   try{
-    const url = `https://router.project-osrm.org/nearest/v1/foot/${lng},${lat}?number=1&exclude=motorway,trunk,primary`;
+    // Käytetään standardia ja luotettavaa driving-profiilia katuun lukitsemiseen
+    const url = `https://router.project-osrm.org/nearest/v1/driving/${lng},${lat}?number=1`;
     const resp = await fetch(url);
     if(!resp.ok) return [lat, lng, ""];
     const data = await resp.json();
@@ -369,21 +394,22 @@ async function snapToRoad(lat, lng){
       const roadName = data.waypoints[0].name || "";
       return [snapLat, snapLng, roadName];
     }
-  }catch(e){ /* ei verkkoa / CORS-ongelma - käytetään alkuperäistä pistettä */ }
+  }catch(e) { /* virhe / offline */ }
   return [lat, lng, ""];
 }
 
-// Arpoo ja hakee pisteen, joka ei osu suurelle autotielle tai moottoritielle.
+// Arpoo ja hakee pisteen, joka ei missään tapauksessa osu suuren autotien tai moottoritien päälle.
 async function getSafeRoadPoint(lat, lng, maxDistance) {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 12; attempt++) {
     const [plat, plng] = randomPointAround(lat, lng, maxDistance);
     const [snapLat, snapLng, roadName] = await snapToRoad(plat, plng);
-    if (!isMajorHighway(roadName)) {
+    if (roadName && !isMajorHighway(roadName)) {
       return [snapLat, snapLng];
     }
   }
-  // Viimeinen hätävara: satunnainen vapaa piste, jos lukitus epäonnistuu
-  return randomPointAround(lat, lng, maxDistance);
+  // Jos haku epäonnistuu toistuvasti (esim. alueella on vain suuria teitä),
+  // asetetaan varapiste erittäin lähelle pelaajaa (60m sisälle), jossa on turvallista maastoa.
+  return randomPointAround(lat, lng, 60);
 }
 
 // --- pelaajahymiön valinta ---
