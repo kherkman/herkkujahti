@@ -64,7 +64,7 @@
     filter: drop-shadow(0 0 6px var(--yellow));
   }
 
-  /* Start overlay - Kirkkaan vihreä, värikäs ja animoitu */
+  /* Start overlay - Vierivä ja dynaaminen */
   #startOverlay{
     position:absolute; inset:0; z-index:2000;
     background: radial-gradient(circle at 20% 20%, #39ff14 0%, transparent 55%),
@@ -72,9 +72,9 @@
                 radial-gradient(circle at 50% 50%, #00a827 0%, #012408 100%);
     background-size: 140% 140%;
     animation: bgPulse 8s ease-in-out infinite alternate;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:22px; text-align:center; padding:20px;
-    overflow: hidden;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    gap:20px; text-align:center; padding: 40px 20px;
+    overflow-y: auto;
   }
   @keyframes bgPulse {
     0% { background-position: 0% 0%; }
@@ -110,12 +110,120 @@
   #startOverlay p{ 
     color:#ffffff; 
     max-width:440px; 
-    margin:10px 0; 
+    margin:5px 0; 
     font-size:15px; 
     line-height:1.6; 
     font-weight: 700;
     text-shadow: 1px 1px 3px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.5);
   }
+
+  /* Tarkan sijainnin ohje */
+  .precise-tip {
+    background: rgba(255, 235, 77, 0.15);
+    border: 1px dashed var(--yellow);
+    color: var(--yellow);
+    padding: 12px 16px;
+    border-radius: 14px;
+    font-size: 13px;
+    max-width: 440px;
+    line-height: 1.45;
+    text-align: left;
+    margin: 5px 0;
+    text-shadow: 1px 1px 2px #000;
+    box-shadow: 0 0 15px rgba(255, 235, 77, 0.08);
+  }
+
+  /* Kiellettyjen teiden asetuspaneeli */
+  .custom-roads-panel {
+    background: rgba(18, 8, 38, 0.95);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+    width: 100%;
+    max-width: 440px;
+    text-align: left;
+    box-shadow: 0 0 15px rgba(255, 0, 255, 0.15);
+  }
+  #toggleRoadsBtn {
+    background: transparent;
+    border: none;
+    color: var(--cyan);
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+    width: 100%;
+    text-align: left;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: inherit;
+  }
+  #roadsManager {
+    margin-top: 10px;
+    border-top: 1px dashed var(--line);
+    padding-top: 10px;
+  }
+  #newRoadInput {
+    flex: 1;
+    background: #110825;
+    border: 1px solid var(--line);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  #newRoadInput:focus {
+    outline: none;
+    border-color: var(--cyan);
+  }
+  #addRoadBtn {
+    background: var(--cyan);
+    color: #05070d;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 13px;
+    transition: 0.1s;
+  }
+  #addRoadBtn:hover {
+    transform: scale(1.02);
+  }
+  #forbiddenRoadsList {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding-right: 4px;
+  }
+  .road-tag {
+    background: rgba(255, 47, 208, 0.15);
+    border: 1px solid var(--magenta);
+    color: #ff8bf3;
+    padding: 4px 10px;
+    border-radius: 14px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .road-tag .remove-btn {
+    background: transparent;
+    border: none;
+    color: #ff007f;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .picker{
     display:grid; grid-template-columns:repeat(4, 54px); gap:12px;
     background: rgba(3, 20, 7, 0.9); padding:18px; border-radius:18px; 
@@ -276,8 +384,27 @@
 
 <div id="startOverlay">
   <h1>HERKKUJAHTI</h1>
-  <p>Pelattava vain vastuullisen aikuisen läsnäollessa ja ympäristöä tarkkaillessa. Kerää lähistöllä piileskelevät herkut kävelemällä niiden luo — mutta väistä vaarallisia petoja! Valitse ensin oma hymiösi kartalle.</p>
+  <p>Pelattava vain vastuullisen aikuisen läsnäollessa ja ympäristöä tarkkaillessa. Kerää lähistöllä piileskelevät herkut kävelemällä niiden luo — mutta väistä vaarallisia petoja!</p>
+  
+  <!-- Tarkan sijainnin ohje -->
+  <div class="precise-tip">
+    💡 <b>Salli tarkan sijainnin käyttö:</b> Jos sijaintisi heittää satoja metrejä tai kilometrejä, varmista laitteesi asetuksista, että olet sallinut <b>tarkan sijainnin (Precise Location)</b> selaimelle ja että puhelimesi Wi-Fi on kytketty päälle.
+  </div>
+
   <div class="picker" id="playerPicker"></div>
+
+  <!-- Kiellettyjen teiden hallinta -->
+  <div class="custom-roads-panel">
+    <button id="toggleRoadsBtn" type="button">⚙️ Muokkaa kiellettyjä teitä ▼</button>
+    <div id="roadsManager" style="display: none;">
+      <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+        <input type="text" id="newRoadInput" placeholder="Estettävä tien nimi (esim. Hämeentie)...">
+        <button id="addRoadBtn" type="button">Lisää</button>
+      </div>
+      <div id="forbiddenRoadsList"></div>
+    </div>
+  </div>
+
   <div id="statusMsg">Valitse hymiö ja paina Aloita</div>
   <button id="startBtn" disabled>Aloita peli</button>
 </div>
@@ -321,6 +448,59 @@ let started = false;
 let gameOver = false;
 let currentPos = null;
 
+// --- kiellettyjen teiden välimuisti (LocalStorage) ---
+
+let customForbiddenRoads = [];
+const STORAGE_KEY = "herkkujahti_forbidden_roads";
+
+function loadForbiddenRoads() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      customForbiddenRoads = JSON.parse(saved);
+    } catch(e) {
+      customForbiddenRoads = [];
+    }
+  } else {
+    customForbiddenRoads = [];
+  }
+}
+loadForbiddenRoads();
+
+function saveForbiddenRoads() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(customForbiddenRoads));
+}
+
+function renderForbiddenRoads() {
+  const container = document.getElementById('forbiddenRoadsList');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  if (customForbiddenRoads.length === 0) {
+    container.innerHTML = '<span style="font-size: 12px; color: var(--muted); font-style: italic;">Ei mukautettuja estettyjä teitä.</span>';
+    return;
+  }
+  
+  customForbiddenRoads.forEach((road, index) => {
+    const tag = document.createElement('span');
+    tag.className = 'road-tag';
+    tag.textContent = road;
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '✕';
+    removeBtn.onclick = () => {
+      customForbiddenRoads.splice(index, 1);
+      saveForbiddenRoads();
+      renderForbiddenRoads();
+    };
+    
+    tag.appendChild(removeBtn);
+    container.appendChild(tag);
+  });
+}
+
 // --- apufunktiot ---
 
 function haversine(lat1, lon1, lat2, lon2){
@@ -344,11 +524,22 @@ function randomPointAround(lat, lng, radiusMeters){
   return [lat + dy, lng + dLng];
 }
 
+function fmtMeters(m){
+  if(m >= 1000) return (m/1000).toFixed(2) + " km";
+  return Math.round(m) + " m";
+}
+
 // Tunnistaa OpenStreetMap-katuosoitteen perusteella suuret autotiet, joita tulee välttää.
 function isMajorHighway(name) {
   if (!name) return false;
   const n = name.toLowerCase().trim();
   
+  // 1. Tarkistetaan käyttäjän lisäämät mukautetut estot välimuistista
+  if (customForbiddenRoads.some(road => n.includes(road.toLowerCase().trim()))) {
+    return true;
+  }
+
+  // 2. Oletusestosäännöt moottoriteille ja muille isoille väylille
   if (/\b(vt|kt|st)\b\s*\d+/i.test(n) || n.includes("valtatie") || n.includes("kantatie") || n.includes("seututie")) return true;
   if (/\be\s*\d+/i.test(n) || n.includes("eurooppatie")) return true;
   if (/^[\d\s\/\-+eE]+$/.test(n)) return true;
@@ -411,6 +602,42 @@ function buildPicker(){
   });
 }
 buildPicker();
+
+// --- Alustetaan kiellettyjen teiden käyttöliittymäohjaus ---
+
+document.getElementById('toggleRoadsBtn').onclick = () => {
+  const mgr = document.getElementById('roadsManager');
+  const btn = document.getElementById('toggleRoadsBtn');
+  if (mgr.style.display === 'none') {
+    mgr.style.display = 'block';
+    btn.textContent = '⚙️ Piilota kielletyt tiet ▲';
+  } else {
+    mgr.style.display = 'none';
+    btn.textContent = '⚙️ Muokkaa kiellettyjä teitä ▼';
+  }
+};
+
+document.getElementById('addRoadBtn').onclick = () => {
+  const input = document.getElementById('newRoadInput');
+  const value = input.value.trim();
+  if (value) {
+    const valueLower = value.toLowerCase();
+    if (!customForbiddenRoads.some(r => r.toLowerCase() === valueLower)) {
+      customForbiddenRoads.push(value);
+      saveForbiddenRoads();
+      renderForbiddenRoads();
+      input.value = '';
+    }
+  }
+};
+
+document.getElementById('newRoadInput').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('addRoadBtn').click();
+  }
+});
+
+renderForbiddenRoads();
 
 // --- kartan alustus ---
 
