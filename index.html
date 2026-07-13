@@ -344,30 +344,16 @@ function randomPointAround(lat, lng, radiusMeters){
   return [lat + dy, lng + dLng];
 }
 
-function fmtMeters(m){
-  if(m >= 1000) return (m/1000).toFixed(2) + " km";
-  return Math.round(m) + " m";
-}
-
 // Tunnistaa OpenStreetMap-katuosoitteen perusteella suuret autotiet, joita tulee välttää.
-// Estää valtatiet, kantatiet, seututiet, eurooppatiet ja pelkillä numeroilla osoitetut autotiet.
 function isMajorHighway(name) {
   if (!name) return false;
   const n = name.toLowerCase().trim();
   
-  // 1. Estetään valtatiet, kantatiet ja seututiet (esim. "vt 1", "kt 50", "st 110", "st110", "valtatie", "kantatie", "seututie")
   if (/\b(vt|kt|st)\b\s*\d+/i.test(n) || n.includes("valtatie") || n.includes("kantatie") || n.includes("seututie")) return true;
-  
-  // 2. Estetään Eurooppatiet (esim. "e 18", "e18", "e 75")
   if (/\be\s*\d+/i.test(n) || n.includes("eurooppatie")) return true;
-  
-  // 3. Estetään jos nimenä on pelkkä numero (kuten "51", "3") tai useita numeroita vinoviivalla (kuten "e 18 / 51" tai "12 / 120")
   if (/^[\d\s\/\-+eE]+$/.test(n)) return true;
-  
-  // 4. Estetään moottoritiet, moottoriliikennetiet, kehätiet, liittymät ja rampit
   if (n.includes("moottoritie") || n.includes("moottoriliikennetie") || n.includes("kehä") || n.includes("ramppi") || n.includes("liittymä")) return true;
   
-  // 5. Estetään suuret väylät (esim. lansivayla, itavayla), mutta sallitaan kevyen liikenteen väylät
   if (n.includes("väylä") || n.includes("vayla")) {
     if (n.includes("ulkoilu") || n.includes("kävely") || n.includes("pyörä") || n.includes("kevyen")) {
       return false; 
@@ -375,16 +361,13 @@ function isMajorHighway(name) {
     return true; 
   }
   
-  // 6. Estetään englanninkieliset moottoritiesanat
   if (n.includes("motorway") || n.includes("highway") || n.includes("freeway") || n.includes("expressway")) return true;
-  
   return false;
 }
 
 // Siirtää pisteen lähimmälle kadulle/tielle.
 async function snapToRoad(lat, lng){
   try{
-    // Käytetään standardia ja luotettavaa driving-profiilia katuun lukitsemiseen
     const url = `https://router.project-osrm.org/nearest/v1/driving/${lng},${lat}?number=1`;
     const resp = await fetch(url);
     if(!resp.ok) return [lat, lng, ""];
@@ -394,7 +377,7 @@ async function snapToRoad(lat, lng){
       const roadName = data.waypoints[0].name || "";
       return [snapLat, snapLng, roadName];
     }
-  }catch(e) { /* virhe / offline */ }
+  }catch(e) { }
   return [lat, lng, ""];
 }
 
@@ -407,8 +390,6 @@ async function getSafeRoadPoint(lat, lng, maxDistance) {
       return [snapLat, snapLng];
     }
   }
-  // Jos haku epäonnistuu toistuvasti (esim. alueella on vain suuria teitä),
-  // asetetaan varapiste erittäin lähelle pelaajaa (60m sisälle), jossa on turvallista maastoa.
   return randomPointAround(lat, lng, 60);
 }
 
@@ -515,19 +496,17 @@ async function movePredators(){
     const dLngDeg = (PREDATOR_STEP_M / (111300 * Math.cos(p.lat * Math.PI/180))) * Math.cos(angle);
     let nlat = p.lat + dLatDeg;
     let nlng = p.lng + dLngDeg;
-    // pysy oman kotipisteensä kierrosalueella, muuten käänny takaisin
     if(haversine(p.homeLat, p.homeLng, nlat, nlng) > SPAWN_RADIUS_M){
       nlat = p.lat - dLatDeg;
       nlng = p.lng - dLngDeg;
     }
-    // pysy kadulla myös liikkuessa, mutta vältä suuria autoteitä
     const [snapLat, snapLng, roadName] = await snapToRoad(nlat, nlng);
     if (!isMajorHighway(roadName)) {
       p.lat = snapLat; p.lng = snapLng;
       p.marker.setLatLng([snapLat, snapLng]);
     }
   }));
-  if(gameOver) return; // peli on voinut päättyä toisen tarkistuksen kautta odotuksen aikana
+  if(gameOver) return;
   if(currentPos) checkPredatorCollision(currentPos[0], currentPos[1]);
 }
 
@@ -636,26 +615,6 @@ function onGeoError(err){
   pathLine.setLatLngs(path);
 }
 
-function endGame(){
-  gameOver = true;
-  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
-  if(predatorInterval !== null) clearInterval(predatorInterval);
-  document.getElementById('endTitle').textContent = '🎉 Kaikki herkut kerätty!';
-  document.getElementById('finalStats').innerHTML =
-    `Kuljit <b>${fmtMeters(totalMeters)}</b> ja keräsit kaikki ${SPAWN_COUNT} herkkua.<br>Lopputulos: <b>${score} pistettä</b>`;
-  document.getElementById('endOverlay').style.display = 'flex';
-}
-
-function loseGame(predatorEmoji){
-  gameOver = true;
-  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
-  if(predatorInterval !== null) clearInterval(predatorInterval);
-  document.getElementById('endTitle').textContent = `${predatorEmoji} Jäit kiinni!`;
-  document.getElementById('finalStats').innerHTML =
-    `Ehdit kulkea <b>${fmtMeters(totalMeters)}</b> ja kerätä <b>${collectedList.length}</b>/${SPAWN_COUNT} herkkua ennen kuin peto sai kiinni.<br>Lopputulos: <b>${score} pistettä</b>`;
-  document.getElementById('endOverlay').style.display = 'flex';
-}
-
 document.getElementById('startBtn').onclick = () => {
   if(!selectedEmoji || started) return;
   started = true;
@@ -667,7 +626,6 @@ document.getElementById('startBtn').onclick = () => {
     return;
   }
   if(location.protocol === 'file:'){
-    // Selaimet estävät geolocationin file://-origineista turvallisuussyistä.
     onGeoError();
     return;
   }
@@ -675,11 +633,11 @@ document.getElementById('startBtn').onclick = () => {
     pos => {
       onGeoSuccess(pos);
       watchId = navigator.geolocation.watchPosition(onGeoSuccess, () => {}, {
-        enableHighAccuracy:true, maximumAge:2000, timeout:8000
+        enableHighAccuracy:true, maximumAge:2000, timeout:20000
       });
     },
     onGeoError,
-    { enableHighAccuracy:true, timeout:8000 }
+    { enableHighAccuracy:true, timeout:20000 }
   );
 };
 
