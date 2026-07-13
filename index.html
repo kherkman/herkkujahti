@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="fi">
 <head>
@@ -238,8 +237,9 @@
   }
   .picker button:hover{ border-color:var(--cyan); transform:scale(1.12); box-shadow: 0 0 12px var(--cyan); }
   .picker button.selected{ border-color:var(--yellow); box-shadow:0 0 20px var(--yellow); background:#154a1d; }
+  
   #startBtn{
-    padding:16px 48px; font-size:18px; letter-spacing:2px; font-weight:800;
+    padding:16px 32px; font-size:18px; letter-spacing:2px; font-weight:800;
     border-radius:30px; border:none; cursor:pointer; text-transform:uppercase;
     background: linear-gradient(90deg, #ff00ff, #ff007f, #00ffff);
     background-size: 200% auto;
@@ -248,6 +248,17 @@
     transition: 0.3s;
     animation: gradientMove 2s ease infinite;
   }
+  #continueBtn{
+    padding:16px 32px; font-size:18px; letter-spacing:2px; font-weight:800;
+    border-radius:30px; border:none; cursor:pointer; text-transform:uppercase;
+    background: linear-gradient(90deg, #00ffff, #39ff14);
+    color:#000000;
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.6), 0 0 15px rgba(57, 255, 20, 0.4);
+    transition: 0.3s;
+    display: none;
+  }
+  #continueBtn:hover{ transform:scale(1.05); }
+
   @keyframes gradientMove {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -388,7 +399,7 @@
   
   <!-- Tarkan sijainnin ohje -->
   <div class="precise-tip">
-    💡 <b>Salli tarkan sijainnin käyttö:</b> Jos sijaintisi heittää satoja metrejä tai kilometrejä, varmista laitteesi asetuksista, että olet sallinut <b>tarkan sijainnin (Precise Location)</b> selaimelle ja että puhelimesi Wi-Fi on kytketty päälle.
+    💡 <b>Salli tarkan sijainnin käyttö:</b> Jos sijainti heittää satoja metrejä, varmista laitteesi asetuksista, että olet sallinut <b>tarkan sijainnin (Precise Location)</b> selaimelle ja että puhelimesi Wi-Fi on kytketty päälle.
   </div>
 
   <div class="picker" id="playerPicker"></div>
@@ -405,8 +416,11 @@
     </div>
   </div>
 
-  <div id="statusMsg">Valitse hymiö ja paina Aloita</div>
-  <button id="startBtn" disabled>Aloita peli</button>
+  <div id="statusMsg">Valitse hymiö ja aloita uusi peli</div>
+  <div style="display: flex; gap: 12px; width: 100%; max-width: 440px;">
+    <button id="startBtn" disabled style="flex: 1;">Uusi Peli</button>
+    <button id="continueBtn" style="flex: 1; display: none;">Jatka peliä</button>
+  </div>
 </div>
 
 <div id="endOverlay">
@@ -439,7 +453,7 @@ let testMode = false;
 let selectedEmoji = null;
 let animals = [];      // {marker, lat, lng, emoji, collected} - kerättävät herkut
 let predators = [];    // {marker, lat, lng, emoji, homeLat, homeLng} - väistettävät pedot
-let decorations = [];  // {marker} - koristeet
+let decorations = [];  // {marker, lat, lng, emoji} - koristeet
 let path = [];         // [ [lat,lng], ... ]
 let totalMeters = 0;
 let score = 0;
@@ -501,6 +515,43 @@ function renderForbiddenRoads() {
   });
 }
 
+// --- pelitilan tallennus ja palautus (LocalStorage) ---
+
+const STATE_STORAGE_KEY = "herkkujahti_game_state";
+let savedState = null;
+
+function saveGameState() {
+  if (!started || gameOver) {
+    localStorage.removeItem(STATE_STORAGE_KEY);
+    return;
+  }
+  const state = {
+    selectedEmoji,
+    currentPos,
+    totalMeters,
+    score,
+    collectedList,
+    path,
+    animals: animals.map(a => ({ lat: a.lat, lng: a.lng, emoji: a.emoji, collected: a.collected })),
+    predators: predators.map(p => ({ lat: p.lat, lng: p.lng, emoji: p.emoji, homeLat: p.homeLat, homeLng: p.homeLng })),
+    decorations: decorations.map(d => ({ lat: d.lat, lng: d.lng, emoji: d.emoji }))
+  };
+  localStorage.setItem(STATE_STORAGE_KEY, JSON.stringify(state));
+}
+
+function checkSavedGame() {
+  const saved = localStorage.getItem(STATE_STORAGE_KEY);
+  if (saved) {
+    try {
+      savedState = JSON.parse(saved);
+      document.getElementById('continueBtn').style.display = 'block';
+      document.getElementById('statusMsg').textContent = "Löytyi tallennettu peli! Jatka peliä tai aloita uusi peli valitsemalla hymiö.";
+    } catch(e) {
+      savedState = null;
+    }
+  }
+}
+
 // --- apufunktiot ---
 
 function haversine(lat1, lon1, lat2, lon2){
@@ -534,12 +585,10 @@ function isMajorHighway(name) {
   if (!name) return false;
   const n = name.toLowerCase().trim();
   
-  // 1. Tarkistetaan käyttäjän lisäämät mukautetut estot välimuistista
   if (customForbiddenRoads.some(road => n.includes(road.toLowerCase().trim()))) {
     return true;
   }
 
-  // 2. Oletusestosäännöt moottoriteille ja muille isoille väylille
   if (/\b(vt|kt|st)\b\s*\d+/i.test(n) || n.includes("valtatie") || n.includes("kantatie") || n.includes("seututie")) return true;
   if (/\be\s*\d+/i.test(n) || n.includes("eurooppatie")) return true;
   if (/^[\d\s\/\-+eE]+$/.test(n)) return true;
@@ -584,6 +633,18 @@ async function getSafeRoadPoint(lat, lng, maxDistance) {
   return randomPointAround(lat, lng, 60);
 }
 
+// --- Full screen tuki ---
+function requestFullScreen() {
+  const doc = document.documentElement;
+  if (doc.requestFullscreen) {
+    doc.requestFullscreen().catch(err => console.log("Fullscreen estetty:", err));
+  } else if (doc.webkitRequestFullscreen) { /* Safari */
+    doc.webkitRequestFullscreen();
+  } else if (doc.msRequestFullscreen) { /* IE11 */
+    doc.msRequestFullscreen();
+  }
+}
+
 // --- pelaajahymiön valinta ---
 
 function buildPicker(){
@@ -596,7 +657,7 @@ function buildPicker(){
       [...el.children].forEach(c => c.classList.remove('selected'));
       b.classList.add('selected');
       document.getElementById('startBtn').disabled = false;
-      document.getElementById('statusMsg').textContent = "Valmis! Paina Aloita.";
+      document.getElementById('statusMsg').textContent = "Valmis! Paina Uusi Peli.";
     };
     el.appendChild(b);
   });
@@ -638,11 +699,15 @@ document.getElementById('newRoadInput').addEventListener('keypress', (e) => {
 });
 
 renderForbiddenRoads();
+checkSavedGame();
 
 // --- kartan alustus ---
 
 async function initMap(lat, lng){
-  map = L.map('map', { zoomControl:false, attributionControl:true }).setView([lat,lng], 17);
+  const centerLat = savedState ? (savedState.currentPos ? savedState.currentPos[0] : lat) : lat;
+  const centerLng = savedState ? (savedState.currentPos ? savedState.currentPos[1] : lng) : lng;
+
+  map = L.map('map', { zoomControl:false, attributionControl:true }).setView([centerLat, centerLng], 17);
   L.control.zoom({ position:'bottomright' }).addTo(map);
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
@@ -660,21 +725,77 @@ async function initMap(lat, lng){
   }).addTo(map);
 
   const pulseIcon = L.divIcon({ className:'', html:'<div class="player-pulse"></div>', iconSize:[30,30], iconAnchor:[15,15] });
-  pulseMarker = L.marker([lat,lng], { icon:pulseIcon, interactive:false, zIndexOffset:0 }).addTo(map);
+  pulseMarker = L.marker([centerLat, centerLng], { icon:pulseIcon, interactive:false, zIndexOffset:0 }).addTo(map);
 
   const playerIcon = L.divIcon({ className:'', html:`<div class="player-icon">${selectedEmoji}</div>`, iconSize:[34,34], iconAnchor:[17,17] });
-  playerMarker = L.marker([lat,lng], { icon:playerIcon, zIndexOffset:1000 }).addTo(map);
+  playerMarker = L.marker([centerLat, centerLng], { icon:playerIcon, zIndexOffset:1000 }).addTo(map);
 
-  document.getElementById('statusMsg').textContent = "Sijoitetaan kohteita kaduille…";
-  await spawnDecorations(lat, lng);
-  await spawnAnimals(lat, lng);
-  await spawnPredators(lat, lng);
-  document.getElementById('statusMsg').textContent = "";
+  if (savedState) {
+    document.getElementById('statusMsg').textContent = "Palautetaan edellistä peliä…";
+    totalMeters = savedState.totalMeters || 0;
+    score = savedState.score || 0;
+    collectedList = savedState.collectedList || [];
+    path = savedState.path || [];
+    currentPos = savedState.currentPos || [centerLat, centerLng];
+
+    document.getElementById('statMeters').textContent = fmtMeters(totalMeters);
+    document.getElementById('statScore').textContent = score;
+    updateCollectedRow();
+
+    pathLineShadow.setLatLngs(path);
+    pathLine.setLatLngs(path);
+
+    restoreSavedDecorations();
+    restoreSavedAnimals();
+    restoreSavedPredators();
+    document.getElementById('statusMsg').textContent = "";
+  } else {
+    document.getElementById('statusMsg').textContent = "Sijoitetaan kohteita kaduille…";
+    await spawnDecorations(lat, lng);
+    await spawnAnimals(lat, lng);
+    await spawnPredators(lat, lng);
+    document.getElementById('statusMsg').textContent = "";
+  }
+
+  saveGameState();
 
   if(testMode){
     document.getElementById('testModeBadge').style.display = 'block';
     map.on('click', e => movePlayerTo(e.latlng.lat, e.latlng.lng));
   }
+}
+
+function restoreSavedDecorations() {
+  if (!savedState || !savedState.decorations) return;
+  savedState.decorations.forEach(d => {
+    const icon = L.divIcon({ className:'', html:`<div class="decor-icon">${d.emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
+    const marker = L.marker([d.lat, d.lng], { icon, interactive:false, zIndexOffset:-1000 }).addTo(map);
+    decorations.push({ marker, lat: d.lat, lng: d.lng, emoji: d.emoji });
+  });
+}
+
+function restoreSavedAnimals() {
+  if (!savedState || !savedState.animals) return;
+  savedState.animals.forEach(a => {
+    if (a.collected) {
+      animals.push({ marker: null, lat: a.lat, lng: a.lng, emoji: a.emoji, collected: true });
+    } else {
+      const icon = L.divIcon({ className:'', html:`<div class="animal-icon">${a.emoji}</div>`, iconSize:[32,32], iconAnchor:[16,16] });
+      const marker = L.marker([a.lat, a.lng], { icon }).addTo(map);
+      animals.push({ marker, lat: a.lat, lng: a.lng, emoji: a.emoji, collected: false });
+    }
+  });
+  updateHudLeft();
+}
+
+function restoreSavedPredators() {
+  if (!savedState || !savedState.predators) return;
+  savedState.predators.forEach(p => {
+    const icon = L.divIcon({ className:'', html:`<div class="predator-icon">${p.emoji}</div>`, iconSize:[34,34], iconAnchor:[17,17] });
+    const marker = L.marker([p.lat, p.lng], { icon, interactive:false, zIndexOffset:500 }).addTo(map);
+    predators.push({ marker, lat: p.lat, lng: p.lng, emoji: p.emoji, homeLat: p.homeLat, homeLng: p.homeLng });
+  });
+  predatorInterval = setInterval(movePredators, PREDATOR_MOVE_INTERVAL_MS);
 }
 
 async function spawnAnimals(lat, lng){
@@ -698,7 +819,7 @@ async function spawnDecorations(lat, lng){
     const emoji = DECOR_EMOJIS[Math.floor(Math.random()*DECOR_EMOJIS.length)];
     const icon = L.divIcon({ className:'', html:`<div class="decor-icon">${emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
     const marker = L.marker([dlat, dlng], { icon, interactive:false, zIndexOffset:-1000 }).addTo(map);
-    decorations.push({ marker });
+    decorations.push({ marker, lat: dlat, lng: dlng, emoji });
   });
 }
 
@@ -735,6 +856,7 @@ async function movePredators(){
   }));
   if(gameOver) return;
   if(currentPos) checkPredatorCollision(currentPos[0], currentPos[1]);
+  saveGameState();
 }
 
 function checkPredatorCollision(lat, lng){
@@ -775,7 +897,9 @@ function checkCollisions(lat, lng){
     const d = haversine(lat, lng, a.lat, a.lng);
     if(d <= CATCH_RADIUS_M){
       a.collected = true;
-      map.removeLayer(a.marker);
+      if (a.marker) {
+        map.removeLayer(a.marker);
+      }
       score += POINTS_PER_CATCH;
       collectedList.push(a.emoji);
       document.getElementById('statScore').textContent = score;
@@ -808,6 +932,7 @@ function movePlayerTo(lat, lng){
   map.panTo([lat,lng], { animate:true });
   checkCollisions(lat, lng);
   checkPredatorCollision(lat, lng);
+  saveGameState();
 }
 
 function onGeoSuccess(pos){
@@ -842,12 +967,7 @@ function onGeoError(err){
   pathLine.setLatLngs(path);
 }
 
-document.getElementById('startBtn').onclick = () => {
-  if(!selectedEmoji || started) return;
-  started = true;
-  document.getElementById('startOverlay').style.display = 'none';
-  document.getElementById('statusMsg').textContent = "Haetaan sijaintia…";
-
+function startGeolocation() {
   if(!navigator.geolocation){
     onGeoError();
     return;
@@ -866,6 +986,57 @@ document.getElementById('startBtn').onclick = () => {
     onGeoError,
     { enableHighAccuracy:true, timeout:20000 }
   );
+}
+
+function endGame(){
+  gameOver = true;
+  localStorage.removeItem(STATE_STORAGE_KEY);
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if(predatorInterval !== null) clearInterval(predatorInterval);
+  document.getElementById('endTitle').textContent = '🎉 Kaikki herkut kerätty!';
+  document.getElementById('finalStats').innerHTML =
+    `Kuljit <b>${fmtMeters(totalMeters)}</b> ja keräsit kaikki ${SPAWN_COUNT} herkkua.<br>Lopputulos: <b>${score} pistettä</b>`;
+  document.getElementById('endOverlay').style.display = 'flex';
+}
+
+function loseGame(predatorEmoji){
+  gameOver = true;
+  localStorage.removeItem(STATE_STORAGE_KEY);
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if(predatorInterval !== null) clearInterval(predatorInterval);
+  document.getElementById('endTitle').textContent = `${predatorEmoji} Jäit kiinni!`;
+  document.getElementById('finalStats').innerHTML =
+    `Ehdit kulkea <b>${fmtMeters(totalMeters)}</b> ja kerätä <b>${collectedList.length}</b>/${SPAWN_COUNT} herkkua ennen kuin peto sai kiinni.<br>Lopputulos: <b>${score} pistettä</b>`;
+  document.getElementById('endOverlay').style.display = 'flex';
+}
+
+document.getElementById('startBtn').onclick = () => {
+  if(!selectedEmoji || started) return;
+  
+  // Uusi peli pyyhkii mahdollisen vanhan tallennuksen
+  savedState = null;
+  localStorage.removeItem(STATE_STORAGE_KEY);
+  
+  requestFullScreen();
+  
+  started = true;
+  document.getElementById('startOverlay').style.display = 'none';
+  document.getElementById('statusMsg').textContent = "Haetaan sijaintia…";
+
+  startGeolocation();
+};
+
+document.getElementById('continueBtn').onclick = () => {
+  if(started || !savedState) return;
+
+  selectedEmoji = savedState.selectedEmoji;
+  requestFullScreen();
+
+  started = true;
+  document.getElementById('startOverlay').style.display = 'none';
+  document.getElementById('statusMsg').textContent = "Haetaan sijaintia…";
+
+  startGeolocation();
 };
 
 document.getElementById('restartBtn').onclick = () => location.reload();
